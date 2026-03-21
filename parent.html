@@ -141,6 +141,7 @@ function rParentSetup(){
 // ══════ RENDER ══════
 function R(){
   app.innerHTML='';
+  window.scrollTo(0,0);
   if(!D){loadData();return}
   if(X.drv){rDrv();return}
   var scr=h('div',{style:{minHeight:'100vh',display:'flex',flexDirection:'column'}});
