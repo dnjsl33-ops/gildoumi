@@ -47,7 +47,8 @@ var app=document.getElementById('app');
 var BIN=localStorage.getItem('gd_bin')||'';
 var KEY=localStorage.getItem('gd_key')||'';
 var D=null; // route data
-var X={scr:'home',si:0,drv:false,sp:false,spi:0,chk:[false,false]};
+var X={scr:'home',si:0,drv:false,sp:false,spi:0,chk:[false,false],dir:'go'}; // dir: 'go' or 'return'
+function getSteps(){return X.dir==='go'?(D.go?D.go.steps:D.steps||[]):(D.ret?D.ret.steps:[])}
 
 var TO=[
 {key:'local_bus',label:'일반버스',icon:'🚌',color:'#2E7D32',bg:'#E8F5E9'},
@@ -151,31 +152,45 @@ function R(){
 }
 
 function rHome(p){
-  var w=h('div',{style:{padding:'32px 24px',display:'flex',flexDirection:'column',gap:'20px',flex:'1'}});
-  w.appendChild(h('div',{style:{textAlign:'center',marginBottom:'8px'}},[
+  var w=h('div',{style:{padding:'32px 24px',display:'flex',flexDirection:'column',gap:'16px',flex:'1'}});
+  w.appendChild(h('div',{style:{textAlign:'center',marginBottom:'4px'}},[
     h('div',{style:{fontSize:'56px',marginBottom:'8px'}},'🧭'),
     h('h1',{style:{fontSize:'28px',fontWeight:'800',color:'#1A1A1A'}},'부모님 길도우미')
   ]));
+
+  // Direction tabs
+  var hasReturn=D.ret&&D.ret.steps&&D.ret.steps.length>0;
+  if(hasReturn){
+    var dtabs=h('div',{style:{display:'flex',borderRadius:'16px',overflow:'hidden',border:'2px solid #E8E4DC'}});
+    var goTab=h('button',{style:{flex:'1',padding:'16px 12px',fontSize:'20px',fontWeight:'800',color:X.dir==='go'?'#fff':'#2D5A27',background:X.dir==='go'?'#2D5A27':'#fff',transition:'.2s'}});
+    goTab.textContent='🏥 병원 가는길';goTab.addEventListener('click',function(){X.dir='go';R()});dtabs.appendChild(goTab);
+    var retTab=h('button',{style:{flex:'1',padding:'16px 12px',fontSize:'20px',fontWeight:'800',color:X.dir==='return'?'#fff':'#FF6B35',background:X.dir==='return'?'#FF6B35':'#fff',transition:'.2s'}});
+    retTab.textContent='🏠 집 가는길';retTab.addEventListener('click',function(){X.dir='return';R()});dtabs.appendChild(retTab);
+    w.appendChild(dtabs);
+  }
+
   var cd=h('div',{class:'cd'});
-  cd.appendChild(h('p',{style:{fontSize:'17px',color:'#6B6B6B',marginBottom:'6px',fontWeight:'600'}},'오늘 일정'));
-  cd.appendChild(h('h2',{style:{fontSize:'26px',fontWeight:'800',color:'#1A1A1A',marginBottom:'8px',lineHeight:'1.3'}},'🏥 '+(D.dest||'병원')+' 방문'));
-  cd.appendChild(h('p',{style:{fontSize:'20px',color:'#6B6B6B',fontWeight:'600'}},(D.departTime||'')+' 출발'));
-  if(D.appointTime)cd.appendChild(h('p',{style:{fontSize:'17px',color:'#2D5A27',fontWeight:'700',marginTop:'8px'}},'🕐 예약시간: '+D.appointTime));
+  cd.appendChild(h('p',{style:{fontSize:'17px',color:'#6B6B6B',marginBottom:'6px',fontWeight:'600'}},X.dir==='go'?'오늘 일정':'귀가 안내'));
+  cd.appendChild(h('h2',{style:{fontSize:'26px',fontWeight:'800',color:'#1A1A1A',marginBottom:'8px',lineHeight:'1.3'}},X.dir==='go'?('🏥 '+(D.dest||'병원')+' 방문'):('🏠 '+(D.origin||'집')+'으로 귀가')));
+  if(X.dir==='go'){
+    cd.appendChild(h('p',{style:{fontSize:'20px',color:'#6B6B6B',fontWeight:'600'}},(D.departTime||'')+' 출발'));
+    if(D.appointTime)cd.appendChild(h('p',{style:{fontSize:'17px',color:'#2D5A27',fontWeight:'700',marginTop:'8px'}},'🕐 예약시간: '+D.appointTime));
+  }
   w.appendChild(cd);
   w.appendChild(h('div',{style:{flex:'1'}}));
   w.appendChild(h('div',{style:{display:'flex',flexDirection:'column',gap:'14px'}},[
-    mb('▶','출발하기',{background:'#2D5A27',padding:'24px 28px',fontSize:'26px'},function(){X.si=0;X.scr='step';X.chk=[false,false];R()}),
+    mb('▶','출발하기',{background:X.dir==='go'?'#2D5A27':'#FF6B35',padding:'24px 28px',fontSize:'26px'},function(){X.si=0;X.scr='step';X.chk=[false,false];R()}),
     mb('📍','지금 어디로 가나요',{background:'#fff',color:'#6B6B6B',border:'2.5px solid #6B6B6B',boxShadow:'none'},function(){X.scr='crisis';R()}),
     mb('📞','자녀에게 전화',{background:'#fff',color:'#FF6B35',border:'2.5px solid #FF6B35',boxShadow:'none'},call)
   ]));
-  // Refresh button
   w.appendChild(h('button',{style:{fontSize:'13px',color:'#999',textAlign:'center',marginTop:'8px',padding:'8px'},onClick:function(){loadData()}},'🔄 경로 새로고침'));
   p.appendChild(w);
 }
 
 function rStep(p){
-  var st=D.steps[X.si];if(!st){X.scr='home';R();return}
-  var t=gT(st.transport),tot=D.steps.length,idx=X.si;
+  var steps=getSteps();
+  var st=steps[X.si];if(!st){X.scr='home';R();return}
+  var t=gT(st.transport),tot=steps.length,idx=X.si;
   var iB=st.transport==='local_bus',iTr=st.transport==='ktx'||st.transport==='srt',iSh=st.transport==='shuttle',iTx=st.transport==='taxi',iA=st.arr,iTf=st.transport==='transfer';
 
   p.appendChild(mtb(iA?'도착':'길 안내',function(){idx>0?(X.si--,R()):(X.scr='home',R())}));
@@ -224,7 +239,7 @@ function rStep(p){
 }
 
 function rDrv(){
-  var st=D.steps[X.si];if(!st)return;var nfo=st.info||{};
+  var st=getSteps()[X.si];if(!st)return;var nfo=st.info||{};
   var ov=h('div',{style:{position:'fixed',inset:'0',background:'#fff',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'40px',zIndex:'100',cursor:'pointer'}});
   ov.addEventListener('click',function(){X.drv=false;R()});
   ov.appendChild(h('p',{style:{fontSize:'clamp(36px,9vw,64px)',fontWeight:'900',lineHeight:'1.4',whiteSpace:'pre-line',textAlign:'center'}},st.drv));
@@ -247,7 +262,7 @@ function rCrisis(p){
 }
 
 function rPh(){
-  var st=D.steps[X.si];if(!st||!st.photos)return;
+  var st=getSteps()[X.si];if(!st||!st.photos)return;
   var ov=h('div',{class:'ov',style:{background:'rgba(0,0,0,.85)',flexDirection:'column',padding:'20px',zIndex:'200'}});
   ov.appendChild(h('button',{style:{position:'absolute',top:'20px',right:'20px',background:'rgba(255,255,255,.2)',borderRadius:'50%',width:'48px',height:'48px',fontSize:'24px',color:'#fff'},onClick:function(){X.sp=false;R()}},'✕'));
   ov.appendChild(h('img',{src:st.photos[X.spi],style:{maxWidth:'100%',maxHeight:'55vh',borderRadius:'16px',objectFit:'contain',background:'#fff'}}));
