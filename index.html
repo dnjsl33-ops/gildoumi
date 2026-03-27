@@ -84,7 +84,7 @@ function ph(l,e,b){return'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="h
 var P={a:ph('버스정류장','🚏','#E8F5E9'),b:ph('포항역','🏛','#E3F2FD'),c:ph('KTX승강장','🚄','#E3F2FD'),d:ph('SRT승강장','🚅','#F3E5F5'),e:ph('서울역','🏙','#FFF8E1'),f:ph('지하철입구','🚇','#FFEBEE'),g:ph('수서역','🏢','#E0F2F1'),h:ph('선릉역','🏢','#FFEBEE'),i:ph('셔틀정류장','🚐','#E0F2F1'),j:ph('병원정문','🏥','#E8F5E9'),k:ph('안내데스크','💁','#E8F5E9'),l:ph('택시승강장','🚕','#FFF8E1'),m:ph('환승구역','🔄','#FFF3E0')};
 
 // ══════ STATE ══════
-var S={selTpl:'srt+shuttle',phone:'010-1234-5678',dest:'삼성서울병원',departTime:'오전 6:30',appointTime:'오전 11:00',origin:'포항 흥해',steps:null};
+var S={selTpl:'srt+shuttle',phone:'010-1234-5678',dest:'삼성서울병원',departTime:'오전 6:30',appointTime:'오전 11:00',origin:'포항 흥해',steps:null,stepsReturn:null,editDir:'go'};
 
 var TPL={
 'srt+shuttle':[
@@ -123,8 +123,8 @@ fIn.addEventListener('change',function(ev){var f=ev.target.files&&ev.target.file
 function doUp(si,pi){uTgt={si:si,pi:pi};fIn.click()}
 function swap(i,j){var t=S.steps[i];S.steps[i]=S.steps[j];S.steps[j]=t;R()}
 
-function syncInfo(idx){
-  var st=S.steps[idx];if(!st.info)st.info={};var tp=st.transport;
+function syncInfoCur(idx,arr){
+  var st=arr[idx];if(!st)return;if(!st.info)st.info={};var tp=st.transport;
   if(tp==='local_bus')st.info.platform=st.from;
   if(tp==='shuttle')st.info.platform=st.from;
   if(tp==='taxi')st.info.address=st.to;
@@ -132,12 +132,13 @@ function syncInfo(idx){
   if(tp==='subway')st.info.destination=st.to;
   if(tp==='transfer')st.info.transferStation=st.from;
 }
-function propagate(fromIdx,val){
-  for(var i=fromIdx+1;i<S.steps.length;i++){
-    var st=S.steps[i];st.from=val;if(!st.info)st.info={};syncInfo(i);
+function propagateCur(fromIdx,val,arr){
+  for(var i=fromIdx+1;i<arr.length;i++){
+    var st=arr[i];st.from=val;if(!st.info)st.info={};syncInfoCur(i,arr);
     if(st.transport==='transfer'){st.to=val;st.info.transferStation=val}else break;
   }
 }
+function getCurSteps(){return(S.editDir==='go')?S.steps:(S.stepsReturn||[])}
 
 function toast(msg){
   var t=h('div',{class:'toast'},msg);app.appendChild(t);
@@ -147,7 +148,7 @@ function toast(msg){
 // ══════ JSONBin API ══════
 function saveToCloud(cb){
   if(!CFG.binId||!CFG.apiKey){toast('⚠️ 먼저 초기 설정을 완료하세요');return}
-  var data={phone:S.phone,dest:S.dest,departTime:S.departTime,appointTime:S.appointTime,steps:S.steps};
+  var data={phone:S.phone,dest:S.dest,departTime:S.departTime,appointTime:S.appointTime,origin:S.origin,go:{steps:S.steps},ret:{steps:S.stepsReturn||[]}};
   var xhr=new XMLHttpRequest();
   xhr.open('PUT','https://api.jsonbin.io/v3/b/'+CFG.binId);
   xhr.setRequestHeader('Content-Type','application/json');
@@ -155,6 +156,44 @@ function saveToCloud(cb){
   xhr.onload=function(){if(xhr.status===200){toast('✅ 저장 완료! 부모님 앱에 반영됩니다');if(cb)cb()}else{toast('❌ 저장 실패: '+xhr.status)}};
   xhr.onerror=function(){toast('❌ 네트워크 오류')};
   xhr.send(JSON.stringify(data));
+}
+
+// ══════ REVERSE ROUTE ══════
+function reverseRoute(){
+  var src=S.steps;if(!src||!src.length){toast('가는길을 먼저 설정하세요');return}
+  var rev=cp(src);
+  // Remove arrival step (접수/도보)
+  if(rev.length>0&&rev[rev.length-1].arr)rev.pop();
+  // Reverse order
+  rev.reverse();
+  // Swap from/to for each step
+  for(var i=0;i<rev.length;i++){
+    var tmp=rev[i].from;rev[i].from=rev[i].to;rev[i].to=tmp;
+    rev[i].np=null;rev[i].arr=false;
+    // Clear time-specific info (train number, seat, time) but keep structural info
+    var info=rev[i].info||{};
+    if(info.trainNumber)info.trainNumber='(수정 필요)';
+    if(info.seat)info.seat='(수정 필요)';
+    if(info.arrivalTime)info.arrivalTime='(수정 필요)';
+    // Swap transfer direction
+    if(rev[i].transport==='transfer'&&info.fromTrain&&info.toTrain){
+      var tf=info.fromTrain;info.fromTrain=info.toTrain;info.toTrain=tf;
+    }
+    if(info.destination)info.destination=rev[i].to;
+    if(info.transferStation)info.transferStation=rev[i].from;
+    rev[i].info=info;
+    // Update instruction/voice
+    rev[i].instruction=rev[i].from+'에서\n'+rev[i].to+'(으)로 이동';
+    rev[i].voice=rev[i].from+'에서 '+rev[i].to+'(으)로 이동하세요.';
+  }
+  // Add next preview
+  for(var i=0;i<rev.length-1;i++){rev[i].np=rev[i+1].from+'에서 '+gT(rev[i+1].transport).label+'을 타세요'}
+  // Mark last step as arrival
+  if(rev.length>0){rev[rev.length-1].arr=true;rev[rev.length-1].instruction='집에 도착했어요!';rev[rev.length-1].voice='집에 도착했습니다. 수고하셨어요!';rev[rev.length-1].np=null}
+  S.stepsReturn=rev;
+  S.editDir='return';
+  toast('🔄 오는길이 생성되었습니다. 열차번호/좌석을 수정하세요!');
+  R();
 }
 
 // ══════ RENDER ══════
@@ -233,6 +272,17 @@ function rMain(){
   hdr.appendChild(h('p',{style:{fontSize:'13px',color:'#6B6B6B',marginTop:'4px'}},'경로를 설정하고 저장하면 부모님 앱에 자동 반영됩니다'));
   app.appendChild(hdr);
 
+  // Direction tabs
+  var dtabs=h('div',{style:{display:'flex',background:'#fff',borderBottom:'1px solid #E8E4DC'}});
+  var goTab=h('button',{style:{flex:'1',padding:'12px',fontSize:'15px',fontWeight:'700',color:S.editDir==='go'?'#2D5A27':'#6B6B6B',background:S.editDir==='go'?'#E8F5E3':'transparent',borderBottom:S.editDir==='go'?'3px solid #2D5A27':'3px solid transparent',transition:'.2s'}});
+  goTab.textContent='🏥 병원 가는길';goTab.addEventListener('click',function(){S.editDir='go';R()});dtabs.appendChild(goTab);
+  var retTab=h('button',{style:{flex:'1',padding:'12px',fontSize:'15px',fontWeight:'700',color:S.editDir==='return'?'#FF6B35':'#6B6B6B',background:S.editDir==='return'?'#FFF0E8':'transparent',borderBottom:S.editDir==='return'?'3px solid #FF6B35':'3px solid transparent',transition:'.2s'}});
+  retTab.textContent='🏠 집 가는길';retTab.addEventListener('click',function(){S.editDir='return';R()});dtabs.appendChild(retTab);
+  app.appendChild(dtabs);
+
+  // Get current direction's steps
+  var curSteps=(S.editDir==='go')?S.steps:(S.stepsReturn||[]);
+
   var w=h('div',{class:'wrap'});
 
   // 기본 정보
@@ -245,29 +295,57 @@ function rMain(){
   });
   w.appendChild(info);
 
-  // 추천 경로
-  var tps=h('div',{class:'tpls'});
-  [['srt+shuttle','SRT+셔틀','버스→SRT→셔틀'],['ktx+srt+shuttle','KTX+SRT','버스→KTX→환승→SRT→셔틀'],['ktx+shuttle','KTX+셔틀','버스→KTX→환승→KTX→지하철→셔틀']].forEach(function(tb){
-    var sl=S.selTpl===tb[0];
-    var btn=h('button',{class:'tpl'+(sl?' sel':'')});
-    btn.addEventListener('click',function(){S.selTpl=tb[0];S.steps=cp(TPL[tb[0]]);R()});
-    btn.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:sl?'#FF6B35':'#1A1A1A',display:'block'}},tb[1]));
-    btn.appendChild(h('span',{style:{fontSize:'11px',color:'#6B6B6B'}},tb[2]));
-    tps.appendChild(btn);
-  });
-  w.appendChild(tps);
+  if(S.editDir==='go'){
+    // 추천 경로 (가는길만)
+    var tps=h('div',{class:'tpls'});
+    [['srt+shuttle','SRT+셔틀','버스→SRT→셔틀'],['ktx+srt+shuttle','KTX+SRT','버스→KTX→환승→SRT→셔틀'],['ktx+shuttle','KTX+셔틀','버스→KTX→환승→KTX→지하철→셔틀']].forEach(function(tb){
+      var sl=S.selTpl===tb[0];
+      var btn=h('button',{class:'tpl'+(sl?' sel':'')});
+      btn.addEventListener('click',function(){S.selTpl=tb[0];S.steps=cp(TPL[tb[0]]);R()});
+      btn.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:sl?'#FF6B35':'#1A1A1A',display:'block'}},tb[1]));
+      btn.appendChild(h('span',{style:{fontSize:'11px',color:'#6B6B6B'}},tb[2]));
+      tps.appendChild(btn);
+    });
+    w.appendChild(tps);
+  } else {
+    // 오는길: 뒤집기 버튼
+    if(!S.stepsReturn||!S.stepsReturn.length){
+      var revBox=h('div',{style:{background:'#FFF3E0',borderRadius:'16px',padding:'20px',textAlign:'center',border:'1px solid #E65100'}});
+      revBox.appendChild(h('p',{style:{fontSize:'15px',fontWeight:'700',color:'#E65100',marginBottom:'12px'}},'아직 오는길이 설정되지 않았어요'));
+      var revBtn=h('button',{class:'bb',style:{background:'#E65100',fontSize:'18px'}});
+      revBtn.appendChild(h('span',{style:{fontSize:'24px'}},'🔄'));
+      revBtn.appendChild(document.createTextNode('가는길 기반으로 생성하기'));
+      revBtn.addEventListener('click',reverseRoute);
+      revBox.appendChild(revBtn);
+      revBox.appendChild(h('p',{style:{fontSize:'12px',color:'#6B6B6B',marginTop:'10px'}},'가는길 경로를 뒤집어서 오는길을 자동 생성합니다\n생성 후 열차번호/좌석만 수정하시면 됩니다'));
+      w.appendChild(revBox);
+      w.appendChild(h('div',{style:{flex:'1'}}));
+      // Save button still needed
+      var sv=h('button',{class:'bb',style:{background:'#2D5A27',marginTop:'6px'}});
+      sv.appendChild(h('span',{style:{fontSize:'24px'}},'☁️'));
+      sv.appendChild(document.createTextNode('저장하기 (부모님 앱에 반영)'));
+      sv.addEventListener('click',function(){saveToCloud()});
+      w.appendChild(sv);
+      app.appendChild(w);return;
+    }
+    // 오는길 있으면 재생성 버튼
+    var regenBtn=h('button',{style:{padding:'8px 14px',borderRadius:'12px',background:'#FFF3E0',border:'1.5px solid #E65100',color:'#E65100',fontWeight:'700',fontSize:'13px',width:'100%',textAlign:'center'}});
+    regenBtn.textContent='🔄 가는길 기반으로 다시 생성하기';
+    regenBtn.addEventListener('click',reverseRoute);
+    w.appendChild(regenBtn);
+  }
 
   // 이동 단계
   var sec=h('div',{class:'sth'});
-  sec.appendChild(h('h2',{style:{fontSize:'17px',fontWeight:'800',color:'#1A1A1A'}},'🗺️ 이동 단계'));
+  sec.appendChild(h('h2',{style:{fontSize:'17px',fontWeight:'800',color:'#1A1A1A'}},S.editDir==='go'?'🗺️ 가는길 단계':'🗺️ 오는길 단계'));
   var addBtn=h('button',{style:{padding:'5px 12px',borderRadius:'8px',background:'#FFF0E8',border:'1.5px solid #FF6B35',color:'#FF6B35',fontWeight:'700',fontSize:'13px'}});
   addBtn.textContent='+ 추가';
-  addBtn.addEventListener('click',function(){S.steps.push({from:'출발지',to:'도착지',transport:'walk',instruction:'새 단계',sub:null,duration:'약 ?분',drv:null,voice:'새 단계입니다.',info:{},photos:[],pl:[],np:null});R()});
+  addBtn.addEventListener('click',function(){curSteps.push({from:'출발지',to:'도착지',transport:'walk',instruction:'새 단계',sub:null,duration:'약 ?분',drv:null,voice:'새 단계입니다.',info:{},photos:[],pl:[],np:null});R()});
   sec.appendChild(addBtn);
   w.appendChild(sec);
 
-  // Steps
-  S.steps.forEach(function(st,i){
+  // Steps - use curSteps
+  curSteps.forEach(function(st,i){
     var t=gT(st.transport);
     var card=h('div',{class:'sc'});
     var top=h('div',{class:'sc-top'});
@@ -278,10 +356,10 @@ function rMain(){
       top.appendChild(badge);
       var acts=h('div',{class:'sc-acts'});
       var up=h('button',{class:'mv'},idx===0?'':'↑');if(idx===0)up.disabled=true;
-      up.addEventListener('click',function(){if(idx>0)swap(idx,idx-1)});acts.appendChild(up);
-      var dn=h('button',{class:'mv'},idx===S.steps.length-1?'':'↓');if(idx===S.steps.length-1)dn.disabled=true;
-      dn.addEventListener('click',function(){if(idx<S.steps.length-1)swap(idx,idx+1)});acts.appendChild(dn);
-      if(S.steps.length>1){var del=h('button',{class:'del'});del.textContent='삭제';del.addEventListener('click',function(){S.steps.splice(idx,1);R()});acts.appendChild(del)}
+      up.addEventListener('click',function(){if(idx>0){var t=curSteps[idx];curSteps[idx]=curSteps[idx-1];curSteps[idx-1]=t;R()}});acts.appendChild(up);
+      var dn=h('button',{class:'mv'},idx===curSteps.length-1?'':'↓');if(idx===curSteps.length-1)dn.disabled=true;
+      dn.addEventListener('click',function(){if(idx<curSteps.length-1){var t=curSteps[idx];curSteps[idx]=curSteps[idx+1];curSteps[idx+1]=t;R()}});acts.appendChild(dn);
+      if(curSteps.length>1){var del=h('button',{class:'del'});del.textContent='삭제';del.addEventListener('click',function(){curSteps.splice(idx,1);R()});acts.appendChild(del)}
       top.appendChild(acts);
     })(i);
     card.appendChild(top);
@@ -290,11 +368,11 @@ function rMain(){
     var rt=h('div',{class:'rt'});
     (function(idx){
       var fi=h('input',{type:'text',value:st.from});
-      fi.addEventListener('change',function(ev){S.steps[idx].from=ev.target.value;if(idx>0)S.steps[idx-1].to=ev.target.value;syncInfo(idx);R()});
+      fi.addEventListener('change',function(ev){curSteps[idx].from=ev.target.value;if(idx>0)curSteps[idx-1].to=ev.target.value;syncInfoCur(idx,curSteps);R()});
       rt.appendChild(fi);
       rt.appendChild(h('span',{style:{fontSize:'14px',color:'#6B6B6B',flexShrink:'0'}},' → '));
       var ti=h('input',{type:'text',value:st.to});
-      ti.addEventListener('change',function(ev){S.steps[idx].to=ev.target.value;syncInfo(idx);propagate(idx,ev.target.value);R()});
+      ti.addEventListener('change',function(ev){curSteps[idx].to=ev.target.value;syncInfoCur(idx,curSteps);propagateCur(idx,ev.target.value,curSteps);R()});
       rt.appendChild(ti);
     })(i);
     card.appendChild(rt);
@@ -307,14 +385,14 @@ function rMain(){
       flds.forEach(function(f){(function(si,fk,fp,fl){
         var fd=h('div',{class:'gf'});fd.appendChild(h('label',null,fl));
         var inp=h('input',{type:'text',value:(st.info||{})[fk]||'',placeholder:fp});
-        inp.addEventListener('input',function(ev){if(!S.steps[si].info)S.steps[si].info={};S.steps[si].info[fk]=ev.target.value});
+        inp.addEventListener('input',function(ev){if(!curSteps[si].info)curSteps[si].info={};curSteps[si].info[fk]=ev.target.value});
         inp.addEventListener('change',function(ev){
-          if(!S.steps[si].info)S.steps[si].info={};S.steps[si].info[fk]=ev.target.value;
-          if(S.steps[si].transport==='transfer'){
-            if(fk==='transferStation'){S.steps[si].from=ev.target.value;S.steps[si].to=ev.target.value;if(si>0){S.steps[si-1].to=ev.target.value;syncInfo(si-1)}propagate(si,ev.target.value)}
-            if(fk==='destStation'){for(var k=si+1;k<S.steps.length;k++){if(S.steps[k].transport!=='transfer'){S.steps[k].to=ev.target.value;syncInfo(k);break}}}
+          if(!curSteps[si].info)curSteps[si].info={};curSteps[si].info[fk]=ev.target.value;
+          if(curSteps[si].transport==='transfer'){
+            if(fk==='transferStation'){curSteps[si].from=ev.target.value;curSteps[si].to=ev.target.value;if(si>0){curSteps[si-1].to=ev.target.value;syncInfoCur(si-1,curSteps)}propagateCur(si,ev.target.value,curSteps)}
+            if(fk==='destStation'){for(var k=si+1;k<curSteps.length;k++){if(curSteps[k].transport!=='transfer'){curSteps[k].to=ev.target.value;syncInfoCur(k,curSteps);break}}}
           }
-          if((S.steps[si].transport==='ktx'||S.steps[si].transport==='srt')&&fk==='destination'){S.steps[si].to=ev.target.value;propagate(si,ev.target.value)}
+          if((curSteps[si].transport==='ktx'||curSteps[si].transport==='srt')&&fk==='destination'){curSteps[si].to=ev.target.value;propagateCur(si,ev.target.value,curSteps)}
           R();
         });
         fd.appendChild(inp);ed.appendChild(fd);
@@ -333,8 +411,8 @@ function rMain(){
 
   // 미리보기
   var pv=h('div',{class:'pvs'});
-  pv.appendChild(h('h3',{style:{fontSize:'13px',fontWeight:'700',color:'#2D5A27',marginBottom:'6px'}},'👀 부모님 화면 미리보기'));
-  var pvt='';S.steps.forEach(function(st,i){pvt+=(i+1)+'. '+st.from+' → '+st.to+' ('+gT(st.transport).label+')\n'});
+  pv.appendChild(h('h3',{style:{fontSize:'13px',fontWeight:'700',color:'#2D5A27',marginBottom:'6px'}},'👀 '+(S.editDir==='go'?'가는길':'오는길')+' 미리보기'));
+  var pvt='';curSteps.forEach(function(st,i){pvt+=(i+1)+'. '+st.from+' → '+st.to+' ('+gT(st.transport).label+')\n'});
   pv.appendChild(h('p',{style:{fontSize:'13px',color:'#1A1A1A',whiteSpace:'pre-line',lineHeight:'1.7'}},pvt));
   pv.appendChild(h('p',{style:{fontSize:'12px',color:'#2D5A27',marginTop:'6px'}},'📞 '+S.phone));
   w.appendChild(pv);
@@ -346,19 +424,20 @@ function rMain(){
   sv.addEventListener('click',function(){saveToCloud()});
   w.appendChild(sv);
 
-  w.appendChild(h('p',{style:{textAlign:'center',fontSize:'12px',color:'#6B6B6B',marginTop:'6px',lineHeight:'1.5'}},'저장하면 부모님 앱에 자동으로 반영됩니다\n부모님은 앱 아이콘만 터치하시면 됩니다'));
+  w.appendChild(h('p',{style:{textAlign:'center',fontSize:'12px',color:'#6B6B6B',marginTop:'6px',lineHeight:'1.5'}},'가는길 + 오는길 모두 저장됩니다'));
 
   app.appendChild(w);
 }
 
 function showPicker(si){
+  var curSteps=getCurSteps();
   var ov=h('div',{class:'pov'});ov.addEventListener('click',function(){ov.remove()});
   var sh=h('div',{class:'psh'});sh.addEventListener('click',function(ev){ev.stopPropagation()});
   sh.appendChild(h('h3',{style:{fontSize:'20px',fontWeight:'800',textAlign:'center',marginBottom:'16px'}},'교통수단 선택'));
   var gr=h('div',{class:'pgr'});
-  TO.forEach(function(t){var sl=S.steps[si].transport===t.key;
+  TO.forEach(function(t){var sl=curSteps[si]&&curSteps[si].transport===t.key;
     var btn=h('button',{style:{background:sl?t.bg:'#fff',border:sl?'3px solid '+t.color:'2px solid #E8E4DC'}});
-    btn.addEventListener('click',function(){S.steps[si].transport=t.key;S.steps[si].info={};S.steps[si].drv=t.key==='taxi'?(S.steps[si].to+'으로\n가 주세요'):null;ov.remove();R()});
+    btn.addEventListener('click',function(){curSteps[si].transport=t.key;curSteps[si].info={};curSteps[si].drv=t.key==='taxi'?(curSteps[si].to+'으로\n가 주세요'):null;ov.remove();R()});
     btn.appendChild(h('span',{style:{fontSize:'28px'}},t.icon));
     btn.appendChild(h('span',{style:{fontSize:'15px',fontWeight:'700',color:sl?t.color:'#1A1A1A'}},t.label));
     gr.appendChild(btn);
