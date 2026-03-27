@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="길도우미">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>부모님 길도우미</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:#FFFDF7;-webkit-text-size-adjust:100%}
+button{font-family:inherit;cursor:pointer;border:none;background:none;-webkit-appearance:none}
+button:active{transform:scale(.97)}
+.app{max-width:420px;margin:0 auto;min-height:100vh;background:#FFFDF7}
+.bb{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:22px 28px;font-size:24px;font-weight:800;color:#fff;border-radius:20px;box-shadow:0 2px 16px rgba(0,0,0,.06);line-height:1.3}
+.tb{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #E8E4DC;background:rgba(255,253,247,.95);position:sticky;top:0;z-index:10}
+.dt{display:flex;gap:8px;justify-content:center;padding:12px 0}
+.d{height:10px;border-radius:5px;transition:.3s}
+.cd{background:#fff;border-radius:24px;padding:28px 24px;box-shadow:0 2px 16px rgba(0,0,0,.06);border:1px solid #E8E4DC}
+.ic{background:#E8F5E3;border-radius:14px;padding:14px 20px;text-align:center;margin-bottom:10px}
+.pv{background:#F5F5F0;border-radius:14px;padding:14px 20px;border-left:4px solid #2D5A27}
+.pr{display:flex;gap:10px;padding:14px 18px;background:#fff;border-radius:16px;border:1.5px solid #E8E4DC;align-items:center}
+.pt{width:60px;height:44px;border-radius:8px;object-fit:cover;border:1px solid #E8E4DC}
+.ov{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center}
+.ci{display:flex;align-items:center;gap:14px;padding:18px 22px;border-radius:16px;border:2px solid #E8E4DC;cursor:pointer;transition:.15s}
+.ci.ck{background:#E8F5E3;border-color:#2D5A27}
+.cb{width:36px;height:36px;border-radius:10px;border:2px solid #E8E4DC;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0}
+.cb.on{background:#2D5A27;border-color:#2D5A27}
+.free{background:#E0F2F1;border-radius:14px;padding:16px 20px;text-align:center;margin-bottom:10px}
+.tf{background:#FFF3E0;border-radius:14px;padding:14px 20px;text-align:center;margin-bottom:10px;border:2px solid #E65100}
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;text-align:center;padding:40px}
+.err{color:#D32F2F;font-size:15px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<script>
+// ══════ PWA Service Worker ══════
+if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js')}
+
+var app=document.getElementById('app');
+
+// ══════ CONFIG - same JSONBin as guardian ══════
+var BIN=localStorage.getItem('gd_bin')||'';
+var KEY=localStorage.getItem('gd_key')||'';
+var D=null; // route data
+var X={scr:'home',si:0,drv:false,sp:false,spi:0,chk:[false,false],dir:'go'}; // dir: 'go' or 'return'
+function getSteps(){return X.dir==='go'?(D.go?D.go.steps:D.steps||[]):(D.ret?D.ret.steps:[])}
+function getDI(){return X.dir==='go'?(D.go||D):(D.ret||{})}
+
+var TO=[
+{key:'local_bus',label:'일반버스',icon:'🚌',color:'#2E7D32',bg:'#E8F5E9'},
+{key:'shuttle',label:'셔틀버스',icon:'🚐',color:'#00695C',bg:'#E0F2F1'},
+{key:'taxi',label:'택시',icon:'🚕',color:'#F57F17',bg:'#FFF8E1'},
+{key:'ktx',label:'KTX',icon:'🚄',color:'#0D47A1',bg:'#E3F2FD'},
+{key:'srt',label:'SRT',icon:'🚅',color:'#6A1B9A',bg:'#F3E5F5'},
+{key:'subway',label:'지하철',icon:'🚇',color:'#E53935',bg:'#FFEBEE'},
+{key:'transfer',label:'환승',icon:'🔄',color:'#E65100',bg:'#FFF3E0'},
+{key:'walk',label:'도보',icon:'🚶',color:'#5D4037',bg:'#EFEBE9'}
+];
+function gT(k){for(var i=0;i<TO.length;i++)if(TO[i].key===k)return TO[i];return TO[7]}
+
+function h(t,a,c){var el=document.createElement(t);if(a)for(var k in a){if(k==='style'&&typeof a[k]==='object'){for(var s in a[k])el.style[s]=a[k][s]}else if(k.substr(0,2)==='on')el.addEventListener(k.substr(2).toLowerCase(),a[k]);else el.setAttribute(k,a[k])}if(typeof c==='string')el.textContent=c;else if(Array.isArray(c))for(var i=0;i<c.length;i++){if(c[i])el.appendChild(c[i])}else if(c)el.appendChild(c);return el}
+function spk(t){if(window.speechSynthesis){window.speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(t);u.lang='ko-KR';u.rate=0.8;window.speechSynthesis.speak(u)}}
+function mb(ico,lbl,st,fn){var b=h('button',{class:'bb',style:st});if(ico)b.appendChild(h('span',{style:{fontSize:'28px'}},ico));b.appendChild(document.createTextNode(lbl));if(fn)b.addEventListener('click',fn);return b}
+function mtb(title,fn){var b=h('div',{class:'tb'});if(fn){var bk=h('button',{style:{fontSize:'28px',padding:'4px 8px',color:'#1A1A1A'}});bk.textContent='←';bk.addEventListener('click',fn);b.appendChild(bk)}else b.appendChild(h('div',{style:{width:'44px'}}));b.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:'#1A1A1A'}},title));b.appendChild(h('div',{style:{width:'44px'}}));return b}
+function mic(l,v,big){var d=h('div',{class:'ic'});d.appendChild(h('p',{style:{fontSize:'13px',fontWeight:'700',color:'#2D5A27',marginBottom:'4px'}},l));d.appendChild(h('p',{style:{fontSize:big?'36px':'22px',fontWeight:'900',color:'#1A1A1A',lineHeight:'1.2'}},v));return d}
+function call(){if(D&&D.phone)window.location.href='tel:'+D.phone}
+function sms(){if(D&&D.phone){var msg=X.dir==='return'?'집에 잘 도착했어. 걱정하지마. 사랑해 우리딸 ♡':'삼성서울병원에 잘 도착했어. 걱정하지마. 사랑해 우리딸 ♡';window.location.href='sms:'+D.phone+'?body='+encodeURIComponent(msg)}}
+
+// ══════ LOAD DATA ══════
+function loadData(){
+  app.innerHTML='';
+  var ld=h('div',{class:'loading'});
+  ld.appendChild(h('div',{style:{fontSize:'56px'}},'🧭'));
+  ld.appendChild(h('p',{style:{fontSize:'20px',fontWeight:'700',color:'#1A1A1A'}},'경로를 불러오는 중...'));
+  app.appendChild(ld);
+
+  if(!BIN||!KEY){
+    // Show setup
+    rParentSetup();return;
+  }
+
+  var xhr=new XMLHttpRequest();
+  xhr.open('GET','https://api.jsonbin.io/v3/b/'+BIN+'/latest');
+  xhr.setRequestHeader('X-Master-Key',KEY);
+  xhr.onload=function(){
+    if(xhr.status===200){
+      try{
+        var resp=JSON.parse(xhr.responseText);
+        D=resp.record||resp;
+        localStorage.setItem('gd_cache',JSON.stringify(D));
+        R();
+      }catch(e){tryCache()}
+    }else{tryCache()}
+  };
+  xhr.onerror=function(){tryCache()};
+  xhr.timeout=5000;
+  xhr.ontimeout=function(){tryCache()};
+  xhr.send();
+}
+
+function tryCache(){
+  var c=localStorage.getItem('gd_cache');
+  if(c){D=JSON.parse(c);R()}
+  else{app.innerHTML='';var e=h('div',{class:'loading'});
+    e.appendChild(h('div',{style:{fontSize:'56px'}},'📡'));
+    e.appendChild(h('p',{style:{fontSize:'18px',fontWeight:'700',color:'#1A1A1A'}},'인터넷 연결을 확인해주세요'));
+    e.appendChild(h('p',{style:{fontSize:'15px',color:'#6B6B6B'}},'처음 사용할 때는\n인터넷이 필요합니다'));
+    e.appendChild(mb('🔄','다시 시도',{background:'#2D5A27',maxWidth:'240px'},loadData));
+    app.appendChild(e)}
+}
+
+function rParentSetup(){
+  app.innerHTML='';
+  var w=h('div',{class:'loading'});
+  w.appendChild(h('div',{style:{fontSize:'56px'}},'🔗'));
+  w.appendChild(h('h1',{style:{fontSize:'22px',fontWeight:'800',color:'#1A1A1A'}},'앱 연결'));
+  w.appendChild(h('p',{style:{fontSize:'15px',color:'#6B6B6B',lineHeight:'1.6'}},'자녀가 알려준 연결 정보를\n입력해주세요'));
+  var f1=h('div',{style:{width:'100%',maxWidth:'300px'}});
+  f1.appendChild(h('label',{style:{fontSize:'13px',fontWeight:'700',color:'#6B6B6B',display:'block',marginBottom:'4px'}},'Bin ID'));
+  var i1=h('input',{type:'text',placeholder:'자녀에게 문의',style:{width:'100%',padding:'14px',borderRadius:'14px',border:'2px solid #E8E4DC',fontSize:'16px',fontWeight:'600',textAlign:'center'}});
+  f1.appendChild(i1);w.appendChild(f1);
+  var f2=h('div',{style:{width:'100%',maxWidth:'300px'}});
+  f2.appendChild(h('label',{style:{fontSize:'13px',fontWeight:'700',color:'#6B6B6B',display:'block',marginBottom:'4px'}},'API Key'));
+  var i2=h('input',{type:'text',placeholder:'자녀에게 문의',style:{width:'100%',padding:'14px',borderRadius:'14px',border:'2px solid #E8E4DC',fontSize:'16px',fontWeight:'600',textAlign:'center'}});
+  f2.appendChild(i2);w.appendChild(f2);
+  var btn=h('button',{class:'bb',style:{background:'#2D5A27',maxWidth:'300px'}});btn.textContent='연결하기';
+  btn.addEventListener('click',function(){
+    if(!i1.value||!i2.value)return;
+    BIN=i1.value.trim();KEY=i2.value.trim();
+    localStorage.setItem('gd_bin',BIN);localStorage.setItem('gd_key',KEY);
+    loadData();
+  });
+  w.appendChild(btn);
+  w.appendChild(h('p',{style:{fontSize:'12px',color:'#999',marginTop:'12px'}},'* 이 설정은 최초 1회만 필요합니다'));
+  app.appendChild(w);
+}
+
+// ══════ RENDER ══════
+function R(){
+  app.innerHTML='';
+  window.scrollTo(0,0);
+  if(!D){loadData();return}
+  if(X.drv){rDrv();return}
+  var scr=h('div',{style:{minHeight:'100vh',display:'flex',flexDirection:'column'}});
+  if(X.scr==='home')rHome(scr);else if(X.scr==='step')rStep(scr);else if(X.scr==='crisis')rCrisis(scr);
+  app.appendChild(scr);
+  if(X.sp)rPh();
+}
+
+function rHome(p){
+  var w=h('div',{style:{padding:'32px 24px',display:'flex',flexDirection:'column',gap:'16px',flex:'1'}});
+  w.appendChild(h('div',{style:{textAlign:'center',marginBottom:'4px'}},[
+    h('div',{style:{fontSize:'56px',marginBottom:'8px'}},'🧭'),
+    h('h1',{style:{fontSize:'28px',fontWeight:'800',color:'#1A1A1A'}},'부모님 길도우미')
+  ]));
+
+  // Direction tabs
+  var hasReturn=D.ret&&D.ret.steps&&D.ret.steps.length>0;
+  if(hasReturn){
+    var dtabs=h('div',{style:{display:'flex',borderRadius:'16px',overflow:'hidden',border:'2px solid #E8E4DC'}});
+    var goTab=h('button',{style:{flex:'1',padding:'16px 12px',fontSize:'20px',fontWeight:'800',color:X.dir==='go'?'#fff':'#2D5A27',background:X.dir==='go'?'#2D5A27':'#fff',transition:'.2s'}});
+    goTab.textContent='🏥 병원 가는길';goTab.addEventListener('click',function(){X.dir='go';R()});dtabs.appendChild(goTab);
+    var retTab=h('button',{style:{flex:'1',padding:'16px 12px',fontSize:'20px',fontWeight:'800',color:X.dir==='return'?'#fff':'#FF6B35',background:X.dir==='return'?'#FF6B35':'#fff',transition:'.2s'}});
+    retTab.textContent='🏠 집 가는길';retTab.addEventListener('click',function(){X.dir='return';R()});dtabs.appendChild(retTab);
+    w.appendChild(dtabs);
+  }
+
+  var cd=h('div',{class:'cd'});
+  var di=getDI();
+  cd.appendChild(h('p',{style:{fontSize:'17px',color:'#6B6B6B',marginBottom:'6px',fontWeight:'600'}},X.dir==='go'?'오늘 일정':'귀가 안내'));
+  cd.appendChild(h('h2',{style:{fontSize:'26px',fontWeight:'800',color:'#1A1A1A',marginBottom:'8px',lineHeight:'1.3'}},X.dir==='go'?('🏥 '+(di.to||D.dest||'병원')+' 방문'):('🏠 '+(di.to||D.origin||'집')+'으로 귀가')));
+  if(di.departTime)cd.appendChild(h('p',{style:{fontSize:'20px',color:'#6B6B6B',fontWeight:'600'}},di.departTime+' 출발'));
+  if(X.dir==='go'&&di.appointTime)cd.appendChild(h('p',{style:{fontSize:'17px',color:'#2D5A27',fontWeight:'700',marginTop:'8px'}},'🕐 예약시간: '+di.appointTime));
+  w.appendChild(cd);
+  w.appendChild(h('div',{style:{flex:'1'}}));
+  w.appendChild(h('div',{style:{display:'flex',flexDirection:'column',gap:'14px'}},[
+    mb('▶','출발하기',{background:X.dir==='go'?'#2D5A27':'#FF6B35',padding:'24px 28px',fontSize:'26px'},function(){X.si=0;X.scr='step';X.chk=[false,false];R()}),
+    mb('📍','지금 어디로 가나요',{background:'#fff',color:'#6B6B6B',border:'2.5px solid #6B6B6B',boxShadow:'none'},function(){X.scr='crisis';R()}),
+    mb('📞','자녀에게 전화',{background:'#fff',color:'#FF6B35',border:'2.5px solid #FF6B35',boxShadow:'none'},call)
+  ]));
+  w.appendChild(h('button',{style:{fontSize:'13px',color:'#999',textAlign:'center',marginTop:'8px',padding:'8px'},onClick:function(){loadData()}},'🔄 경로 새로고침'));
+  p.appendChild(w);
+}
+
+function rStep(p){
+  var steps=getSteps();
+  var st=steps[X.si];if(!st){X.scr='home';R();return}
+  var t=gT(st.transport),tot=steps.length,idx=X.si;
+  var iB=st.transport==='local_bus',iTr=st.transport==='ktx'||st.transport==='srt',iSh=st.transport==='shuttle',iTx=st.transport==='taxi',iA=st.arr,iTf=st.transport==='transfer';
+
+  p.appendChild(mtb(iA?'도착':'길 안내',function(){idx>0?(X.si--,R()):(X.scr='home',R())}));
+  var dots=h('div',{class:'dt'});for(var i=0;i<tot;i++)dots.appendChild(h('div',{class:'d',style:{width:i===idx?'32px':'10px',background:i===idx?'#2D5A27':i<idx?'#E8F5E3':'#E8E4DC'}}));
+  p.appendChild(dots);
+
+  var w=h('div',{style:{padding:'20px 24px',flex:'1',display:'flex',flexDirection:'column',gap:'14px'}});
+  w.appendChild(h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between'}},[
+    h('span',{style:{display:'inline-flex',alignItems:'center',gap:'6px',background:t.bg,padding:'6px 14px',borderRadius:'10px',fontSize:'15px',fontWeight:'700',color:t.color}},t.icon+' '+t.label),
+    h('span',{style:{fontSize:'14px',fontWeight:'700',color:'#6B6B6B'}},(idx+1)+'/'+tot+' 단계')
+  ]));
+
+  var cd=h('div',{class:'cd',style:{textAlign:'center'}});
+  cd.appendChild(h('p',{style:{fontSize:'13px',fontWeight:'700',color:'#2D5A27',marginBottom:'10px',letterSpacing:'1.5px'}},iSh?'이 버스를 찾으세요':iA?'잘 도착하셨어요! 🎉':iTf?'환승하세요':'지금 해야 할 일'));
+  cd.appendChild(h('div',{style:{fontSize:iA?'56px':'44px',marginBottom:'10px'}},iA?'🎉':t.icon));
+  cd.appendChild(h('p',{style:{fontSize:iA?'24px':'28px',fontWeight:'800',color:'#1A1A1A',marginBottom:'8px',lineHeight:'1.4',whiteSpace:'pre-line'}},st.instruction));
+  if(st.sub&&!iB&&!iSh)cd.appendChild(h('p',{style:{fontSize:'17px',color:'#6B6B6B',marginBottom:'8px',fontWeight:'600'}},st.sub));
+  if(!iA)cd.appendChild(h('div',{style:{display:'inline-flex',alignItems:'center',gap:'8px',background:'#E8F5E3',padding:'8px 16px',borderRadius:'10px',marginTop:'4px'}},[h('span',null,'⏱'),h('span',{style:{fontSize:'18px',fontWeight:'700',color:'#2D5A27'}},st.duration)]));
+  w.appendChild(cd);
+
+  var nfo=st.info||{};
+  if(iB){if(st.sub)w.appendChild(h('p',{style:{fontSize:'18px',fontWeight:'600',color:'#6B6B6B'}},st.sub));if(nfo.busNumber)w.appendChild(mic('버스 번호',nfo.busNumber,true));if(nfo.platform)w.appendChild(mic('타는 곳',nfo.platform));if(nfo.interval)w.appendChild(mic('배차 간격',nfo.interval))}
+  if(iTr){if(nfo.seat)w.appendChild(mic('좌석',nfo.seat,true));var rw=h('div',{style:{display:'flex',gap:'10px'}});if(nfo.trainNumber)rw.appendChild(h('div',{style:{flex:'1'}},mic('열차',nfo.trainNumber)));if(nfo.arrivalTime)rw.appendChild(h('div',{style:{flex:'1'}},mic('도착 예정',nfo.arrivalTime)));w.appendChild(rw);if(nfo.destination)w.appendChild(mic('내릴 곳',nfo.destination))}
+  if(iTf){var tf=h('div',{class:'tf'});tf.appendChild(h('p',{style:{fontSize:'14px',fontWeight:'700',color:'#E65100',marginBottom:'8px'}},'🔄 환승 안내'));if(nfo.transferStation)tf.appendChild(h('p',{style:{fontSize:'22px',fontWeight:'800',color:'#E65100',marginBottom:'6px'}},nfo.transferStation+' 환승'));if(nfo.fromTrain)tf.appendChild(h('p',{style:{fontSize:'16px',color:'#1A1A1A',marginBottom:'4px'}},nfo.fromTrain+' → '+(nfo.toTrain||'')));if(nfo.toType)tf.appendChild(h('p',{style:{fontSize:'15px',color:'#6B6B6B'}},'환승 열차: '+nfo.toType));if(nfo.destStation)tf.appendChild(h('p',{style:{fontSize:'16px',fontWeight:'700',color:'#1A1A1A',marginTop:'4px'}},'도착지: '+nfo.destStation));if(nfo.platform)tf.appendChild(h('p',{style:{fontSize:'20px',fontWeight:'800',color:'#E65100',marginTop:'8px'}},nfo.platform));if(nfo.waitTime)tf.appendChild(h('p',{style:{fontSize:'16px',color:'#6B6B6B',marginTop:'4px'}},'대기 시간: '+nfo.waitTime));w.appendChild(tf)}
+  if(iSh){if(nfo.platform)w.appendChild(mic('타는 곳',nfo.platform,true));if(nfo.busNumber){var fr=h('div',{class:'free'});fr.appendChild(h('p',{style:{fontSize:'22px',fontWeight:'800',color:'#00695C'}},'🆓 '+nfo.busNumber));fr.appendChild(h('p',{style:{fontSize:'15px',color:'#00897B',marginTop:'4px',fontWeight:'600'}},'돈을 내지 않으셔도 됩니다'));w.appendChild(fr)}if(nfo.interval)w.appendChild(mic('배차 간격',nfo.interval))}
+  if(iA){
+    var cl=h('div',{style:{display:'flex',flexDirection:'column',gap:'12px'}});
+    var chkItems=X.dir==='return'?['집 도착 확인']:['정문 도착 확인','접수 완료'];
+    chkItems.forEach(function(item,ci){var ck=X.chk[ci];var it=h('div',{class:'ci'+(ck?' ck':'')});it.addEventListener('click',function(){X.chk[ci]=!X.chk[ci];R()});it.appendChild(h('div',{class:'cb'+(ck?' on':'')},ck?'✓':''));it.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:ck?'#2D5A27':'#1A1A1A'}},item));cl.appendChild(it)});
+    cl.appendChild(mb('💬','문자로 도착 알리기',{background:'#FF6B35',marginTop:'8px'},sms));
+    cl.appendChild(mb('📞','자녀에게 전화',{background:'#fff',color:'#FF6B35',border:'2.5px solid #FF6B35',boxShadow:'none',marginTop:'4px'},call));
+    w.appendChild(cl);
+  }
+
+  if(st.np)w.appendChild(h('div',{class:'pv'},[h('p',{style:{fontSize:'13px',fontWeight:'700',color:'#2D5A27',marginBottom:'4px'}},'다음 단계 미리보기'),h('p',{style:{fontSize:'16px',fontWeight:'600',color:'#1A1A1A'}},st.np)]));
+  if(st.photos&&st.photos.length){var pr=h('div',{class:'pr',style:{cursor:'pointer'}});pr.addEventListener('click',function(){X.sp=true;X.spi=0;R()});var imgs=h('div',{style:{display:'flex',gap:'8px',flex:'1'}});for(var pi=0;pi<Math.min(st.photos.length,2);pi++)imgs.appendChild(h('img',{src:st.photos[pi],class:'pt'}));pr.appendChild(imgs);pr.appendChild(h('div',{style:{textAlign:'left'}},[h('span',{style:{fontSize:'16px',fontWeight:'700',color:'#2D5A27',display:'block'}},'📷 사진 보기'),h('span',{style:{fontSize:'13px',color:'#6B6B6B'}},st.photos.length+'장')]));w.appendChild(pr)}
+
+  w.appendChild(mb('🔈','음성으로 듣기',{background:'#fff',color:'#2D5A27',border:'2.5px solid #2D5A27',boxShadow:'none'},function(){spk(st.voice)}));
+  if(iTx&&st.drv)w.appendChild(mb('🚕','기사님께 보여주기',{background:'#F9A825'},function(){X.drv=true;R()}));
+
+  w.appendChild(h('div',{style:{flex:'1'}}));
+  var bt=h('div',{style:{display:'flex',gap:'12px'}});
+  bt.appendChild(mb(null,'길을 놓쳤어요',{background:'#fff',color:'#D32F2F',border:'2.5px solid #D32F2F',boxShadow:'none',flex:'1',fontSize:'18px',padding:'16px'},function(){X.scr='crisis';R()}));
+  if(!iA){if(idx<tot-1)bt.appendChild(mb('→','다음 단계',{background:'#2D5A27',flex:'1',fontSize:'18px',padding:'16px'},function(){X.si++;R()}));else bt.appendChild(mb('🎉','도착!',{background:'#2E7D32',flex:'1',fontSize:'18px',padding:'16px'},function(){X.si++;R()}))}
+  w.appendChild(bt);
+  p.appendChild(w);
+}
+
+function rDrv(){
+  var st=getSteps()[X.si];if(!st)return;var nfo=st.info||{};
+  var ov=h('div',{style:{position:'fixed',inset:'0',background:'#fff',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'40px',zIndex:'100',cursor:'pointer'}});
+  ov.addEventListener('click',function(){X.drv=false;R()});
+  ov.appendChild(h('p',{style:{fontSize:'clamp(36px,9vw,64px)',fontWeight:'900',lineHeight:'1.4',whiteSpace:'pre-line',textAlign:'center'}},st.drv));
+  if(nfo.address)ov.appendChild(h('div',{style:{marginTop:'32px',padding:'16px 24px',background:'#f5f5f5',borderRadius:'16px',textAlign:'center'}},[h('p',{style:{fontSize:'14px',fontWeight:'700',color:'#888',marginBottom:'6px'}},'주소'),h('p',{style:{fontSize:'20px',fontWeight:'700',color:'#333'}},nfo.address)]));
+  if(nfo.contact||D.phone)ov.appendChild(h('div',{style:{marginTop:'12px',padding:'12px 24px',background:'#E3F2FD',borderRadius:'12px',textAlign:'center'}},[h('p',{style:{fontSize:'14px',fontWeight:'700',color:'#1565C0',marginBottom:'4px'}},'보호자 연락처'),h('p',{style:{fontSize:'18px',fontWeight:'700',color:'#0D47A1'}},nfo.contact||D.phone)]));
+  ov.appendChild(h('p',{style:{fontSize:'14px',color:'rgba(0,0,0,.3)',marginTop:'40px'}},'화면을 터치하면 돌아갑니다'));
+  app.appendChild(ov);
+}
+
+function rCrisis(p){
+  p.appendChild(mtb('도움이 필요하세요?',function(){X.scr=X.si>=0?'step':'home';R()}));
+  var w=h('div',{style:{padding:'32px 24px',display:'flex',flexDirection:'column',gap:'16px',flex:'1'}});
+  w.appendChild(h('div',{style:{textAlign:'center',marginBottom:'8px'}},[h('div',{style:{fontSize:'56px',marginBottom:'12px'}},'🆘'),h('h2',{style:{fontSize:'26px',fontWeight:'800',color:'#1A1A1A'}},'괜찮아요, 도와드릴게요')]));
+  w.appendChild(mb('🔄','다시 안내 받기',{background:'#2D5A27',fontSize:'24px',padding:'24px'},function(){X.scr='step';R()}));
+  w.appendChild(mb('🚕','택시 타기',{background:'#F9A825',fontSize:'24px',padding:'24px'},function(){}));
+  w.appendChild(mb('📞','자녀에게 전화',{background:'#FF6B35',fontSize:'24px',padding:'24px'},call));
+  w.appendChild(h('div',{style:{flex:'1'}}));
+  w.appendChild(h('p',{style:{textAlign:'center',fontSize:'16px',color:'#6B6B6B',fontWeight:'500'}},'당황하지 마세요. 천천히 해도 괜찮아요 💚'));
+  p.appendChild(w);
+}
+
+function rPh(){
+  var st=getSteps()[X.si];if(!st||!st.photos)return;
+  var ov=h('div',{class:'ov',style:{background:'rgba(0,0,0,.85)',flexDirection:'column',padding:'20px',zIndex:'200'}});
+  ov.appendChild(h('button',{style:{position:'absolute',top:'20px',right:'20px',background:'rgba(255,255,255,.2)',borderRadius:'50%',width:'48px',height:'48px',fontSize:'24px',color:'#fff'},onClick:function(){X.sp=false;R()}},'✕'));
+  ov.appendChild(h('img',{src:st.photos[X.spi],style:{maxWidth:'100%',maxHeight:'55vh',borderRadius:'16px',objectFit:'contain',background:'#fff'}}));
+  if(st.pl&&st.pl[X.spi])ov.appendChild(h('p',{style:{color:'#fff',fontSize:'20px',fontWeight:'700',marginTop:'16px'}},st.pl[X.spi]));
+  if(st.photos.length>1){var bts=h('div',{style:{display:'flex',gap:'10px',marginTop:'16px'}});for(var j=0;j<st.photos.length;j++)(function(jj){bts.appendChild(h('button',{style:{padding:'8px 16px',borderRadius:'10px',background:jj===X.spi?'#2D5A27':'rgba(255,255,255,.2)',color:'#fff',fontSize:'14px',fontWeight:'700'},onClick:function(){X.spi=jj;R()}},st.pl&&st.pl[jj]||('사진 '+(jj+1))))})(j);ov.appendChild(bts)}
+  app.appendChild(ov);
+}
+
+// ══════ START ══════
+loadData();
+</script>
+</body>
+</html>
