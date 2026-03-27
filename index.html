@@ -84,7 +84,10 @@ function ph(l,e,b){return'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="h
 var P={a:ph('버스정류장','🚏','#E8F5E9'),b:ph('포항역','🏛','#E3F2FD'),c:ph('KTX승강장','🚄','#E3F2FD'),d:ph('SRT승강장','🚅','#F3E5F5'),e:ph('서울역','🏙','#FFF8E1'),f:ph('지하철입구','🚇','#FFEBEE'),g:ph('수서역','🏢','#E0F2F1'),h:ph('선릉역','🏢','#FFEBEE'),i:ph('셔틀정류장','🚐','#E0F2F1'),j:ph('병원정문','🏥','#E8F5E9'),k:ph('안내데스크','💁','#E8F5E9'),l:ph('택시승강장','🚕','#FFF8E1'),m:ph('환승구역','🔄','#FFF3E0')};
 
 // ══════ STATE ══════
-var S={selTpl:'srt+shuttle',phone:'010-1234-5678',dest:'삼성서울병원',departTime:'오전 6:30',appointTime:'오전 11:00',origin:'포항 흥해',steps:null,stepsReturn:null,editDir:'go'};
+var S={selTpl:'srt+shuttle',phone:'010-1234-5678',dest:'삼성서울병원',origin:'포항 흥해',
+  go:{departTime:'오전 6:30',appointTime:'오전 11:00',from:'포항 흥해',to:'삼성서울병원'},
+  ret:{departTime:'오후 3:00',appointTime:'',from:'삼성서울병원',to:'포항 흥해'},
+  steps:null,stepsReturn:null,editDir:'go'};
 
 var TPL={
 'srt+shuttle':[
@@ -148,7 +151,9 @@ function toast(msg){
 // ══════ JSONBin API ══════
 function saveToCloud(cb){
   if(!CFG.binId||!CFG.apiKey){toast('⚠️ 먼저 초기 설정을 완료하세요');return}
-  var data={phone:S.phone,dest:S.dest,departTime:S.departTime,appointTime:S.appointTime,origin:S.origin,go:{steps:S.steps},ret:{steps:S.stepsReturn||[]}};
+  var data={phone:S.phone,dest:S.dest,origin:S.origin,
+    go:{steps:S.steps,departTime:S.go.departTime,appointTime:S.go.appointTime,from:S.go.from,to:S.go.to},
+    ret:{steps:S.stepsReturn||[],departTime:S.ret.departTime,appointTime:S.ret.appointTime,from:S.ret.from,to:S.ret.to}};
   var xhr=new XMLHttpRequest();
   xhr.open('PUT','https://api.jsonbin.io/v3/b/'+CFG.binId);
   xhr.setRequestHeader('Content-Type','application/json');
@@ -191,8 +196,12 @@ function reverseRoute(){
   // Mark last step as arrival
   if(rev.length>0){rev[rev.length-1].arr=true;rev[rev.length-1].instruction='집에 도착했어요!';rev[rev.length-1].voice='집에 도착했습니다. 수고하셨어요!';rev[rev.length-1].np=null}
   S.stepsReturn=rev;
+  // Auto-set return direction info (swap from/to of go direction)
+  S.ret.from=S.go.to;
+  S.ret.to=S.go.from;
+  S.ret.departTime='(수정 필요)';
   S.editDir='return';
-  toast('🔄 오는길이 생성되었습니다. 열차번호/좌석을 수정하세요!');
+  toast('🔄 오는길이 생성되었습니다. 열차번호/좌석/시간을 수정하세요!');
   R();
 }
 
@@ -285,14 +294,26 @@ function rMain(){
 
   var w=h('div',{class:'wrap'});
 
-  // 기본 정보
+  // 기본 정보 (방향별로 다른 필드)
   var info=h('div',{class:'cd'});
-  info.appendChild(h('h2',{style:{fontSize:'16px',fontWeight:'800',color:'#1A1A1A',marginBottom:'10px'}},'📋 기본 정보'));
-  [['origin','출발지',S.origin],['dest','목적지',S.dest],['departTime','출발 시간',S.departTime],['appointTime','예약 시간',S.appointTime],['phone','📞 보호자 연락처',S.phone]].forEach(function(f){
+  var dir=S.editDir==='go'?S.go:S.ret;
+  var dirLabel=S.editDir==='go'?'🏥 병원 가는길 정보':'🏠 집 가는길 정보';
+  info.appendChild(h('h2',{style:{fontSize:'16px',fontWeight:'800',color:'#1A1A1A',marginBottom:'10px'}},dirLabel));
+
+  // 방향별 출발지/목적지
+  var dirFields=[['from','출발지',dir.from],['to','도착지',dir.to],['departTime','출발 시간',dir.departTime]];
+  if(S.editDir==='go')dirFields.push(['appointTime','예약 시간',dir.appointTime]);
+  dirFields.forEach(function(f){
     var fd=h('div',{class:'fd'});fd.appendChild(h('label',null,f[1]));
-    var inp=h('input',{type:'text',value:f[2]});inp.addEventListener('input',function(ev){S[f[0]]=ev.target.value});
+    var inp=h('input',{type:'text',value:f[2]});
+    (function(key){inp.addEventListener('input',function(ev){dir[key]=ev.target.value})})(f[0]);
     fd.appendChild(inp);info.appendChild(fd);
   });
+  // 공통: 보호자 연락처
+  var fdPhone=h('div',{class:'fd'});fdPhone.appendChild(h('label',null,'📞 보호자 연락처'));
+  var inpPhone=h('input',{type:'text',value:S.phone});inpPhone.addEventListener('input',function(ev){S.phone=ev.target.value});
+  fdPhone.appendChild(inpPhone);info.appendChild(fdPhone);
+
   w.appendChild(info);
 
   if(S.editDir==='go'){
